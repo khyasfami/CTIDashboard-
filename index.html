@@ -476,13 +476,19 @@
     },
     news: {
       name: "Hacker News (Algolia Search API)",
-      url: "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=30&query=" +
-        encodeURIComponent("ransomware OR breach OR CVE OR \"zero-day\" OR malware OR phishing OR APT OR exploit"),
+      url: null, // multiple keyword queries merged at fetch time — see NEWS_KEYWORDS
       docs: "https://hn.algolia.com/api",
       desc: "Recent Hacker News submissions matching cyber-threat keywords — used here as a lightweight open-source security news feed.",
       useProxy: true
     }
   };
+
+  // Algolia's `query` param ANDs every word together, so a single "a OR b OR c" style
+  // query matches nothing. Instead we run one query per keyword and merge the results.
+  var NEWS_KEYWORDS = ["ransomware", "breach", "CVE", "zero-day", "malware", "phishing", "APT", "exploit"];
+  function buildNewsUrl(keyword) {
+    return "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=10&query=" + encodeURIComponent(keyword);
+  }
 
   var PROXIES = [
     function (u) { return u; }, // direct, try first
@@ -511,10 +517,8 @@
     return fetch(url, options).finally(function () { clearTimeout(t); });
   }
 
-  function fetchJSON(sourceId) {
-    var src = SOURCES[sourceId];
-    var url = sourceId === "cve" ? buildNvdUrl() : src.url;
-    var attempts = src.useProxy ? PROXIES : [PROXIES[0]];
+  function fetchOne(url, useProxy) {
+    var attempts = useProxy ? PROXIES : [PROXIES[0]];
     var i = 0;
 
     function attempt() {
@@ -533,6 +537,30 @@
         });
     }
     return attempt();
+  }
+
+  function fetchJSON(sourceId) {
+    var src = SOURCES[sourceId];
+    if (sourceId === "news") {
+      // Algolia ANDs every word in a single query, so "a OR b OR c" matches nothing.
+      // Run one query per keyword and merge, deduping by objectID.
+      return Promise.all(NEWS_KEYWORDS.map(function (kw) {
+        return fetchOne(buildNewsUrl(kw), src.useProxy).catch(function () { return { hits: [] }; });
+      })).then(function (results) {
+        var seen = {};
+        var merged = [];
+        results.forEach(function (r) {
+          (r.hits || []).forEach(function (h) {
+            if (!seen[h.objectID]) { seen[h.objectID] = true; merged.push(h); }
+          });
+        });
+        if (merged.length === 0) throw new Error("no news results from any keyword");
+        merged.sort(function (a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+        return { hits: merged.slice(0, 60) };
+      });
+    }
+    var url = sourceId === "cve" ? buildNvdUrl() : src.url;
+    return fetchOne(url, src.useProxy);
   }
 
   function buildNvdUrl() {
