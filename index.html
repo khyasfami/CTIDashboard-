@@ -455,10 +455,10 @@
   var SOURCES = {
     kev: {
       name: "CISA Known Exploited Vulnerabilities",
-      url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      url: "./data/kev.json",
       docs: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
-      desc: "The authoritative catalog of vulnerabilities confirmed to be actively exploited in the wild, maintained by CISA. No API key required.",
-      useProxy: true
+      desc: "The authoritative catalog of vulnerabilities confirmed to be actively exploited in the wild, maintained by CISA. Mirrored into this repo every 6 hours via GitHub Actions (cisa.gov does not send CORS headers, so it can't be fetched directly from a browser).",
+      useProxy: false
     },
     cve: {
       name: "NVD (National Vulnerability Database)",

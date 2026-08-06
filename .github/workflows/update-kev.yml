@@ -1,0 +1,32 @@
+name: Update CISA KEV mirror
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update-kev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch latest CISA KEV catalog
+        run: |
+          curl -sf "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" -o data/kev.json.new
+          mv data/kev.json.new data/kev.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- data/kev.json; then
+            git add data/kev.json
+            git commit -m "chore: refresh CISA KEV mirror"
+            git push
+          else
+            echo "No changes to KEV data."
+          fi
