@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CTI OSINT Live Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --surface-0: #0b0d11;
+    --surface-1: #12161c;
+    --surface-2: #191f28;
+    --surface-3: #212936;
+    --text-primary: #f4f6f8;
+    --text-secondary: #b7c0cc;
+    --text-muted: #7b8494;
+    --border: rgba(255,255,255,0.10);
+    --gridline: #2c333f;
+    --accent: #3987e5;
+    --accent-dim: #1c5cab;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--surface-0); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+  a { color: var(--accent); }
+
+  header {
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 0 4px rgba(12,163,12,0.15);
+    flex: none;
+  }
+  .brand .dot.stale { background: var(--warning); box-shadow: 0 0 0 4px rgba(250,178,25,0.15); }
+  .brand .dot.down { background: var(--critical); box-shadow: 0 0 0 4px rgba(208,59,59,0.15); }
+  .brand h1 { font-size: 17px; font-weight: 700; letter-spacing: 0.3px; }
+  .brand p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .header-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .clock { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--text-secondary); }
+  .clock span { color: var(--text-primary); font-weight: 600; }
+  select, button.btn {
+    background: var(--surface-2);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button.btn:hover, select:hover { background: var(--surface-3); }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.btn.primary:hover { background: var(--accent-dim); }
+  button.btn:disabled { opacity: 0.55; cursor: default; }
+
+  nav {
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 4px;
+    padding: 0 28px;
+    overflow-x: auto;
+    position: sticky;
+    top: 65px;
+    z-index: 19;
+  }
+  nav button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: 12px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    font-family: inherit;
+  }
+  nav button:hover { color: var(--text-primary); }
+  nav button.active { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+  main { padding: 24px 28px 60px; max-width: 1440px; margin: 0 auto; }
+  .section { display: none; }
+  .section.active { display: block; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .kpi-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .kpi-card .label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+  .kpi-card .value { font-size: 30px; font-weight: 700; margin-top: 8px; line-height: 1; }
+  .kpi-card .sub { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+  .kpi-card.crit .value { color: var(--critical); }
+  .kpi-card.warn .value { color: var(--warning); }
+  .kpi-card.good .value { color: var(--good); }
+
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .panel-head h2 { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+  .panel-head .meta { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+  .src-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
+  .src-dot.stale { background: var(--warning); }
+  .src-dot.down { background: var(--critical); }
+  .src-dot.off { background: var(--text-muted); }
+  .panel-body { padding: 14px 18px 18px; }
+
+  .filter-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .filter-row input[type="search"],
+  .filter-row input[type="text"],
+  .filter-row input[type="password"] {
+    flex: 1; min-width: 180px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .hint-text { font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; margin-bottom: 12px; }
+  .hint-text code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+  .ioc-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; word-break: break-all; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 10px 10px;
+    border-bottom: 1px solid var(--gridline);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  .cve-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--accent); }
+  .row-desc { color: var(--text-secondary); font-size: 12.5px; max-width: 480px; }
+  .row-title { font-weight: 600; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    padding: 3px 8px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.critical { background: rgba(208,59,59,0.18); color: #ff8f8f; }
+  .badge.high     { background: rgba(236,131,90,0.18); color: #ffab84; }
+  .badge.medium   { background: rgba(250,178,25,0.18); color: #ffcf6b; }
+  .badge.low      { background: rgba(12,163,12,0.18); color: #6fe06f; }
+  .badge.unknown  { background: rgba(123,132,148,0.18); color: var(--text-muted); }
+  .badge.ransom   { background: rgba(208,59,59,0.25); color: #ffb3b3; }
+
+  .load-more { text-align: center; margin-top: 10px; }
+  .empty, .loading, .error-msg {
+    padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;
+  }
+  .error-msg { color: var(--serious); }
+  .spinner {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .news-list { display: flex; flex-direction: column; gap: 10px; }
+  .news-item { padding: 10px 0; border-bottom: 1px solid var(--gridline); }
+  .news-item:last-child { border-bottom: none; }
+  .news-item a { color: var(--text-primary); text-decoration: none; font-weight: 600; font-size: 13.5px; }
+  .news-item a:hover { color: var(--accent); }
+  .news-meta { font-size: 11.5px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .chart-wrap { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 20px; }
+  .chart-wrap h2 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .chart-wrap p.sub { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+  canvas { max-height: 220px; }
+
+  .sources-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .source-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .source-card h3 { font-size: 13.5px; margin-bottom: 6px; display:flex; align-items:center; gap:8px; }
+  .source-card p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 8px; }
+  .source-card .status-line { font-size: 11.5px; color: var(--text-muted); }
+
+  footer { text-align: center; padding: 24px; color: var(--text-muted); font-size: 11.5px; }
+  footer a { color: var(--text-secondary); }
+
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  @media (max-width: 640px) {
+    header { padding: 14px 16px; }
+    main { padding: 18px 16px 40px; }
+    nav { padding: 0 16px; top: 96px; }
+    .row-desc { max-width: 220px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="dot" id="overallDot" aria-hidden="true"></span>
+    <div>
+      <h1>CTI OSINT Live Dashboard</h1>
+      <p>Open-source cyber threat intelligence, aggregated client-side and refreshed automatically</p>
+    </div>
+  </div>
+  <div class="header-controls">
+    <div class="clock" id="clock">UTC — <span id="clockTime">--:--:--</span></div>
+    <select id="refreshInterval" aria-label="Auto-refresh interval">
+      <option value="0">Auto-refresh: off</option>
+      <option value="120000">Every 2 min</option>
+      <option value="300000" selected>Every 5 min</option>
+      <option value="600000">Every 10 min</option>
+      <option value="900000">Every 15 min</option>
+    </select>
+    <button class="btn primary" id="refreshBtn" type="button">Refresh now</button>
+  </div>
+</header>
+
+<nav id="tabNav">
+  <button class="active" data-tab="overview" type="button">Overview</button>
+  <button data-tab="kev" type="button">KEV Catalog</button>
+  <button data-tab="cve" type="button">CVE Watch</button>
+  <button data-tab="ghsa" type="button">Advisories</button>
+  <button data-tab="news" type="button">News Feed</button>
+  <button data-tab="misp" type="button">MISP</button>
+  <button data-tab="sources" type="button">Sources</button>
+</nav>
+
+<main>
+
+  <!-- OVERVIEW -->
+  <section class="section active" id="tab-overview">
+    <div class="kpi-row" id="kpiRow">
+      <div class="kpi-card">
+        <div class="label">Known Exploited Vulns</div>
+        <div class="value tnum" id="kpiKevTotal">—</div>
+        <div class="sub" id="kpiKevSub">CISA KEV catalog size</div>
+      </div>
+      <div class="kpi-card crit">
+        <div class="label">KEV added (7d)</div>
+        <div class="value tnum" id="kpiKevNew">—</div>
+        <div class="sub">Newly confirmed exploited</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="label">Critical / High CVEs (7d)</div>
+        <div class="value tnum" id="kpiCveHigh">—</div>
+        <div class="sub">Published to NVD, CVSS ≥ 7</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">New Advisories (7d)</div>
+        <div class="value tnum" id="kpiGhsa">—</div>
+        <div class="sub">GitHub Security Advisories</div>
+      </div>
+      <div class="kpi-card good">
+        <div class="label">Sources Online</div>
+        <div class="value tnum" id="kpiSources">—</div>
+        <div class="sub">Live feed health</div>
+      </div>
+    </div>
+
+    <div class="chart-wrap">
+      <h2>KEV additions — last 30 days</h2>
+      <p class="sub">Count of newly catalogued known-exploited vulnerabilities per day (CISA KEV)</p>
+      <canvas id="kevTrendChart" role="img" aria-label="Bar chart of daily CISA KEV additions over the last 30 days"></canvas>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-kev-mini"></span> Latest exploited vulnerabilities</h2>
+        <div class="meta">Source: CISA KEV</div>
+      </div>
+      <div class="panel-body" id="mini-kev"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-news-mini"></span> Latest OSINT security news</h2>
+        <div class="meta">Source: Hacker News (Algolia)</div>
+      </div>
+      <div class="panel-body" id="mini-news"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  </section>
+
+  <!-- KEV -->
+  <section class="section" id="tab-kev">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-kev"></span> CISA Known Exploited Vulnerabilities Catalog</h2>
+        <div class="meta" id="meta-kev">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="filter-row">
+          <input type="search" id="filter-kev" placeholder="Filter by CVE, vendor, or product…">
+        </div>
+        <div id="table-kev"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+        <div class="load-more"><button class="btn" id="more-kev" type="button" style="display:none;">Show more</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CVE -->
+  <section class="section" id="tab-cve">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-cve"></span> Recently Published CVEs (NVD, last 7 days)</h2>
+        <div class="meta" id="meta-cve">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="filter-row">
+          <input type="search" id="filter-cve" placeholder="Filter by CVE ID or keyword…">
+        </div>
+        <div id="table-cve"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+        <div class="load-more"><button class="btn" id="more-cve" type="button" style="display:none;">Show more</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GHSA -->
+  <section class="section" id="tab-ghsa">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-ghsa"></span> GitHub Security Advisories</h2>
+        <div class="meta" id="meta-ghsa">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="filter-row">
+          <input type="search" id="filter-ghsa" placeholder="Filter by ecosystem, package, or keyword…">
+        </div>
+        <div id="table-ghsa"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+        <div class="load-more"><button class="btn" id="more-ghsa" type="button" style="display:none;">Show more</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEWS -->
+  <section class="section" id="tab-news">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="src-dot" id="dot-news"></span> OSINT Security News</h2>
+        <div class="meta" id="meta-news">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="filter-row">
+          <input type="search" id="filter-news" placeholder="Filter headlines…">
+        </div>
+        <div id="table-news"><div class="loading"><span class="spinner"></span> Loading…</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MISP -->
+  <section class="section" id="tab-misp">
+    <div class="panel" id="mispSetupPanel">
+      <div class="panel-head">
+        <h2><span class="src-dot off" id="dot-misp"></span> MISP Instance <span style="color:var(--text-muted);font-weight:500;">(optional, self-configured)</span></h2>
+        <div class="meta" id="meta-misp">Not configured</div>
+      </div>
+      <div class="panel-body">
+        <p class="hint-text">
+          Connect your own MISP instance to pull recent indicators (IOCs) alongside the public feeds. Your instance URL and API key
+          are stored only in this browser's <code>localStorage</code> and sent <strong>directly</strong> to the URL you provide —
+          never through a proxy, never to any third party, never written into this file. Your MISP instance must allow
+          cross-origin requests (CORS) from this page's origin for the connection to succeed.
+        </p>
+        <div class="filter-row">
+          <input type="text" id="mispUrl" placeholder="https://misp.example.org">
+          <input type="password" id="mispKey" placeholder="API key" autocomplete="off">
+          <button class="btn primary" id="mispConnectBtn" type="button">Connect</button>
+          <button class="btn" id="mispForgetBtn" type="button" style="display:none;">Forget saved key</button>
+        </div>
+        <div class="error-msg" id="mispError" style="display:none; text-align:left; padding:8px 0 0;"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="mispDataPanel" style="display:none;">
+      <div class="panel-head">
+        <h2>Recent indicators (last 30 days)</h2>
+        <div class="meta" id="meta-misp-data">—</div>
+      </div>
+      <div class="panel-body">
+        <div class="filter-row">
+          <input type="search" id="filter-misp" placeholder="Filter by type, value, category, or event…">
+        </div>
+        <div id="table-misp"><div class="empty">Connect to your MISP instance above to see indicators here.</div></div>
+        <div class="load-more"><button class="btn" id="more-misp" type="button" style="display:none;">Show more</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOURCES -->
+  <section class="section" id="tab-sources">
+    <div class="sources-grid" id="sourcesGrid"></div>
+  </section>
+
+</main>
+
+<footer>
+  This dashboard fetches live data directly from public OSINT feeds in your browser — no backend, no API keys, no data collection.
+  Refreshed client-side; see the <button class="btn" style="padding:2px 8px;font-size:11px;" onclick="document.querySelector('[data-tab=sources]').click()">Sources</button> tab for feed details and rate limits.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- config ----------
+  var SOURCES = {
+    kev: {
+      name: "CISA Known Exploited Vulnerabilities",
+      url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      docs: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+      desc: "The authoritative catalog of vulnerabilities confirmed to be actively exploited in the wild, maintained by CISA. No API key required.",
+      useProxy: true
+    },
+    cve: {
+      name: "NVD (National Vulnerability Database)",
+      url: null, // built at fetch time (date window)
+      docs: "https://nvd.nist.gov/developers/vulnerabilities",
+      desc: "NIST's CVE database. Public API, no key required (rate-limited to a handful of requests per 30s per IP).",
+      useProxy: true
+    },
+    ghsa: {
+      name: "GitHub Security Advisories",
+      url: "https://api.github.com/advisories?per_page=30&sort=published&direction=desc",
+      docs: "https://docs.github.com/en/rest/security-advisories",
+      desc: "Community and vendor-reported advisories across open-source ecosystems, published via the GitHub REST API.",
+      useProxy: false
+    },
+    news: {
+      name: "Hacker News (Algolia Search API)",
+      url: "https://hn.algolia.com/api/v1/search_by_date?tags=story&hitsPerPage=30&query=" +
+        encodeURIComponent("ransomware OR breach OR CVE OR \"zero-day\" OR malware OR phishing OR APT OR exploit"),
+      docs: "https://hn.algolia.com/api",
+      desc: "Recent Hacker News submissions matching cyber-threat keywords — used here as a lightweight open-source security news feed.",
+      useProxy: true
+    }
+  };
+
+  var PROXIES = [
+    function (u) { return u; }, // direct, try first
+    function (u) { return "https://api.allorigins.win/raw?url=" + encodeURIComponent(u); },
+    function (u) { return "https://corsproxy.io/?url=" + encodeURIComponent(u); }
+  ];
+
+  var state = {
+    data: { kev: null, cve: null, ghsa: null, news: null, misp: [] },
+    status: { kev: "loading", cve: "loading", ghsa: "loading", news: "loading" }, // loading | live | stale | down
+    visibleCount: { kev: 15, cve: 15, ghsa: 15, misp: 15 },
+    chart: null,
+    timer: null
+  };
+  // MISP status is tracked separately from state.status — it's optional and user-configured,
+  // so it must never count toward the core "sources online" health KPI.
+  var mispStatus = "unconfigured"; // unconfigured | loading | live | stale | down
+
+  var CACHE_PREFIX = "cti_osint_cache_";
+
+  // ---------- fetch helpers ----------
+  function fetchWithTimeout(url, ms, opts) {
+    var controller = new AbortController();
+    var t = setTimeout(function () { controller.abort(); }, ms);
+    var options = Object.assign({ signal: controller.signal, headers: { "Accept": "application/json" } }, opts || {});
+    return fetch(url, options).finally(function () { clearTimeout(t); });
+  }
+
+  function fetchJSON(sourceId) {
+    var src = SOURCES[sourceId];
+    var url = sourceId === "cve" ? buildNvdUrl() : src.url;
+    var attempts = src.useProxy ? PROXIES : [PROXIES[0]];
+    var i = 0;
+
+    function attempt() {
+      if (i >= attempts.length) return Promise.reject(new Error("all fetch attempts failed"));
+      var candidate = attempts[i](url);
+      i++;
+      return fetchWithTimeout(candidate, 15000)
+        .then(function (res) {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.text();
+        })
+        .then(function (text) { return JSON.parse(text); })
+        .catch(function (err) {
+          if (i < attempts.length) return attempt();
+          throw err;
+        });
+    }
+    return attempt();
+  }
+
+  function buildNvdUrl() {
+    var now = new Date();
+    var start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    var iso = function (d) { return d.toISOString(); };
+    return "https://services.nvd.nist.gov/rest/json/cves/2.0?pubStartDate=" + iso(start) +
+      "&pubEndDate=" + iso(now) + "&resultsPerPage=100";
+  }
+
+  function saveCache(id, data) {
+    try {
+      localStorage.setItem(CACHE_PREFIX + id, JSON.stringify({ data: data, ts: Date.now() }));
+    } catch (e) { /* storage unavailable — ignore */ }
+  }
+  function loadCache(id) {
+    try {
+      var raw = localStorage.getItem(CACHE_PREFIX + id);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  // ---------- formatting helpers ----------
+  function esc(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+  function timeAgo(iso) {
+    if (!iso) return "unknown";
+    var diff = Date.now() - new Date(iso).getTime();
+    if (isNaN(diff)) return "unknown";
+    var m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + "m ago";
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + "h ago";
+    var dd = Math.floor(h / 24);
+    return dd + "d ago";
+  }
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    return d.toISOString().split("T")[0];
+  }
+  function severityBadge(score, sevLabel) {
+    var label = sevLabel;
+    if (!label) {
+      if (score == null) label = "unknown";
+      else if (score >= 9) label = "critical";
+      else if (score >= 7) label = "high";
+      else if (score >= 4) label = "medium";
+      else label = "low";
+    }
+    label = String(label).toLowerCase();
+    var cls = ["critical", "high", "medium", "low"].indexOf(label) >= 0 ? label : "unknown";
+    var text = cls === "unknown" ? "N/A" : cls.toUpperCase() + (score != null ? " " + score.toFixed(1) : "");
+    return '<span class="badge ' + cls + '">' + esc(text) + "</span>";
+  }
+  function setDot(el, status) {
+    if (!el) return;
+    el.classList.remove("stale", "down", "off");
+    if (status === "stale") el.classList.add("stale");
+    else if (status === "down") el.classList.add("down");
+    else if (status === "unconfigured" || status === "loading") el.classList.add("off");
+  }
+
+  // ---------- parsers ----------
+  function parseKEV(raw) {
+    var vulns = (raw && raw.vulnerabilities) || [];
+    return vulns.slice().sort(function (a, b) {
+      return new Date(b.dateAdded) - new Date(a.dateAdded);
+    });
+  }
+  function parseCVE(raw) {
+    var items = (raw && raw.vulnerabilities) || [];
+    return items.map(function (it) {
+      var c = it.cve || {};
+      var desc = "";
+      (c.descriptions || []).some(function (d) { if (d.lang === "en") { desc = d.value; return true; } return false; });
+      var score = null, sev = null;
+      var metrics = c.metrics || {};
+      ["cvssMetricV31", "cvssMetricV30", "cvssMetricV2"].some(function (key) {
+        if (metrics[key] && metrics[key][0]) {
+          var m = metrics[key][0];
+          score = m.cvssData ? m.cvssData.baseScore : null;
+          sev = m.baseSeverity || (m.cvssData && m.cvssData.baseSeverity) || null;
+          return true;
+        }
+        return false;
+      });
+      return {
+        id: c.id,
+        desc: desc,
+        published: c.published,
+        score: score,
+        severity: sev,
+        link: "https://nvd.nist.gov/vuln/detail/" + c.id
+      };
+    }).sort(function (a, b) { return new Date(b.published) - new Date(a.published); });
+  }
+  function parseGHSA(raw) {
+    var items = raw || [];
+    return items.map(function (a) {
+      var pkgs = (a.vulnerabilities || []).map(function (v) {
+        return v.package ? v.package.ecosystem + "/" + v.package.name : null;
+      }).filter(Boolean);
+      return {
+        id: a.ghsa_id,
+        cve: a.cve_id,
+        summary: a.summary,
+        severity: a.severity,
+        published: a.published_at,
+        link: a.html_url,
+        packages: pkgs
+      };
+    }).sort(function (a, b) { return new Date(b.published) - new Date(a.published); });
+  }
+  function parseNews(raw) {
+    var hits = (raw && raw.hits) || [];
+    return hits.map(function (h) {
+      return {
+        title: h.title || h.story_title,
+        url: h.url || h.story_url || ("https://news.ycombinator.com/item?id=" + h.objectID),
+        points: h.points,
+        comments: h.num_comments,
+        author: h.author,
+        created: h.created_at
+      };
+    }).filter(function (n) { return n.title; });
+  }
+
+  var PARSERS = { kev: parseKEV, cve: parseCVE, ghsa: parseGHSA, news: parseNews };
+
+  // ---------- MISP (optional, user-configured) ----------
+  var MISP_CONFIG_KEY = "cti_misp_config";
+
+  function getMispConfig() {
+    try {
+      var raw = localStorage.getItem(MISP_CONFIG_KEY);
+      if (!raw) return null;
+      var cfg = JSON.parse(raw);
+      return (cfg && cfg.url && cfg.key) ? cfg : null;
+    } catch (e) { return null; }
+  }
+  function saveMispConfig(url, key) {
+    try { localStorage.setItem(MISP_CONFIG_KEY, JSON.stringify({ url: url, key: key })); } catch (e) { /* storage unavailable */ }
+  }
+  function forgetMispConfig() {
+    try {
+      localStorage.removeItem(MISP_CONFIG_KEY);
+      localStorage.removeItem(CACHE_PREFIX + "misp");
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  // Deliberately bypasses the PROXIES fallback chain used elsewhere: the API key must go
+  // straight from this browser to the instance the user typed, never through a third-party relay.
+  function fetchMispData(cfg) {
+    var base = cfg.url.replace(/\/+$/, "");
+    var body = JSON.stringify({ returnFormat: "json", limit: 100, sort: "timestamp", last: "30d", includeContext: true });
+    return fetchWithTimeout(base + "/attributes/restSearch", 15000, {
+      method: "POST",
+      headers: { "Authorization": cfg.key, "Accept": "application/json", "Content-Type": "application/json" },
+      body: body
+    }).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }).then(function (raw) {
+      var attrs = (raw && raw.response && raw.response.Attribute) || (raw && raw.Attribute) || [];
+      return attrs.map(function (a) {
+        var ev = a.Event || {};
+        return {
+          type: a.type,
+          category: a.category,
+          value: a.value,
+          toIds: a.to_ids === true || a.to_ids === "1" || a.to_ids === 1,
+          timestamp: a.timestamp ? parseInt(a.timestamp, 10) * 1000 : null,
+          eventInfo: ev.info || ("Event #" + a.event_id),
+          threatLevel: ev.threat_level_id != null ? parseInt(ev.threat_level_id, 10) : null
+        };
+      }).sort(function (x, y) { return (y.timestamp || 0) - (x.timestamp || 0); });
+    });
+  }
+
+  function mispThreatBadge(level) {
+    if (level === 1) return '<span class="badge critical">HIGH</span>';
+    if (level === 2) return '<span class="badge medium">MEDIUM</span>';
+    if (level === 3) return '<span class="badge low">LOW</span>';
+    return '<span class="badge unknown">UNDEFINED</span>';
+  }
+
+  function updateMispStatus(status, count, ts) {
+    mispStatus = status;
+    setDot(document.getElementById("dot-misp"), status);
+    var meta = document.getElementById("meta-misp");
+    if (meta) {
+      if (status === "unconfigured") meta.textContent = "Not configured";
+      else if (status === "loading") meta.textContent = "Connecting…";
+      else {
+        var label = status === "live" ? "Live" : status === "stale" ? "Showing cached data" : "Unavailable — check the URL, API key, and that CORS is enabled on your instance";
+        meta.textContent = label + (count != null ? " · " + count + " indicators" : "") + " · updated " + timeAgo(ts ? new Date(ts).toISOString() : null);
+      }
+    }
+    var dataMeta = document.getElementById("meta-misp-data");
+    if (dataMeta && (status === "live" || status === "stale")) {
+      dataMeta.textContent = count + " indicators · updated " + timeAgo(ts ? new Date(ts).toISOString() : null);
+    }
+  }
+
+  function loadMisp() {
+    var cfg = getMispConfig();
+    if (!cfg) { updateMispStatus("unconfigured", null, null); return Promise.resolve(true); }
+    updateMispStatus("loading", null, null);
+    return fetchMispData(cfg)
+      .then(function (list) {
+        state.data.misp = list;
+        saveCache("misp", list);
+        updateMispStatus("live", list.length, Date.now());
+        return true;
+      })
+      .catch(function () {
+        var cached = loadCache("misp");
+        if (cached && cached.data) {
+          state.data.misp = cached.data;
+          updateMispStatus("stale", cached.data.length, cached.ts);
+        } else {
+          state.data.misp = [];
+          updateMispStatus("down", 0, null);
+        }
+        return false;
+      });
+  }
+
+  function renderMispTable(containerId, list, limit) {
+    var el = document.getElementById(containerId);
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No indicators in the selected window.</div>'; return; }
+    var rows = list.slice(0, limit).map(function (a) {
+      return "<tr>" +
+        '<td><span class="badge unknown">' + esc(a.type) + "</span></td>" +
+        '<td class="ioc-value">' + esc(a.value) + "</td>" +
+        '<td class="row-desc">' + esc(a.category) + "</td>" +
+        '<td class="row-desc">' + esc(a.eventInfo) + "</td>" +
+        "<td>" + mispThreatBadge(a.threatLevel) + "</td>" +
+        '<td class="tnum">' + esc(a.timestamp ? fmtDate(new Date(a.timestamp).toISOString()) : "—") + "</td>" +
+        "<td>" + (a.toIds ? "✓" : "—") + "</td>" +
+        "</tr>";
+    }).join("");
+    el.innerHTML = '<table><thead><tr><th>Type</th><th>Value</th><th>Category</th><th>Event</th><th>Threat</th><th>Date</th><th>To IDS</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  }
+
+  function applyMispFilter() {
+    var input = document.getElementById("filter-misp");
+    var q = input ? input.value.trim().toLowerCase() : "";
+    var list = state.data.misp || [];
+    if (q) list = list.filter(function (item) { return JSON.stringify(item).toLowerCase().indexOf(q) !== -1; });
+    renderMispTable("table-misp", list, state.visibleCount.misp);
+    var moreBtn = document.getElementById("more-misp");
+    if (moreBtn) moreBtn.style.display = list.length > state.visibleCount.misp ? "inline-block" : "none";
+  }
+
+  // ---------- renderers ----------
+  function renderKevTable(containerId, list, limit) {
+    var el = document.getElementById(containerId);
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No entries available.</div>'; return; }
+    var rows = list.slice(0, limit).map(function (v) {
+      var ransom = (v.knownRansomwareCampaignUse && v.knownRansomwareCampaignUse !== "Unknown")
+        ? '<span class="badge ransom">Ransomware</span>' : "";
+      return "<tr>" +
+        '<td><span class="cve-id">' + esc(v.cveID) + '</span></td>' +
+        '<td class="row-title">' + esc(v.vendorProject) + " " + esc(v.product) + '<div class="row-desc">' + esc(v.vulnerabilityName) + "</div></td>" +
+        '<td class="tnum">' + esc(fmtDate(v.dateAdded)) + "</td>" +
+        '<td class="tnum">' + esc(fmtDate(v.dueDate)) + "</td>" +
+        "<td>" + ransom + "</td>" +
+        '<td><a href="https://nvd.nist.gov/vuln/detail/' + encodeURIComponent(v.cveID) + '" target="_blank" rel="noopener">NVD ↗</a></td>' +
+        "</tr>";
+    }).join("");
+    el.innerHTML = '<table><thead><tr><th>CVE</th><th>Vendor / Product</th><th>Added</th><th>Due</th><th>Ransomware</th><th>Link</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  }
+
+  function renderCveTable(containerId, list, limit) {
+    var el = document.getElementById(containerId);
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No CVEs found in this window.</div>'; return; }
+    var rows = list.slice(0, limit).map(function (c) {
+      return "<tr>" +
+        '<td><span class="cve-id">' + esc(c.id) + '</span></td>' +
+        '<td class="row-desc">' + esc((c.desc || "").slice(0, 220)) + (c.desc && c.desc.length > 220 ? "…" : "") + "</td>" +
+        "<td>" + severityBadge(c.score, c.severity) + "</td>" +
+        '<td class="tnum">' + esc(fmtDate(c.published)) + "</td>" +
+        '<td><a href="' + esc(c.link) + '" target="_blank" rel="noopener">NVD ↗</a></td>' +
+        "</tr>";
+    }).join("");
+    el.innerHTML = '<table><thead><tr><th>CVE</th><th>Description</th><th>Severity</th><th>Published</th><th>Link</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  }
+
+  function renderGhsaTable(containerId, list, limit) {
+    var el = document.getElementById(containerId);
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No advisories available.</div>'; return; }
+    var rows = list.slice(0, limit).map(function (a) {
+      return "<tr>" +
+        '<td><span class="cve-id">' + esc(a.cve || a.id) + '</span></td>' +
+        '<td class="row-desc">' + esc((a.summary || "").slice(0, 200)) + "</td>" +
+        "<td>" + severityBadge(null, a.severity) + "</td>" +
+        '<td class="row-desc">' + esc(a.packages.slice(0, 3).join(", ")) + "</td>" +
+        '<td class="tnum">' + esc(fmtDate(a.published)) + "</td>" +
+        '<td><a href="' + esc(a.link) + '" target="_blank" rel="noopener">GitHub ↗</a></td>' +
+        "</tr>";
+    }).join("");
+    el.innerHTML = '<table><thead><tr><th>CVE</th><th>Summary</th><th>Severity</th><th>Packages</th><th>Published</th><th>Link</th></tr></thead><tbody>' + rows + "</tbody></table>";
+  }
+
+  function renderNewsList(containerId, list, limit) {
+    var el = document.getElementById(containerId);
+    if (!list || !list.length) { el.innerHTML = '<div class="empty">No recent stories matched.</div>'; return; }
+    var items = list.slice(0, limit || list.length).map(function (n) {
+      return '<div class="news-item">' +
+        '<a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.title) + "</a>" +
+        '<div class="news-meta"><span>' + esc(timeAgo(n.created)) + "</span>" +
+        (n.points != null ? "<span>▲ " + esc(n.points) + "</span>" : "") +
+        (n.comments != null ? "<span>💬 " + esc(n.comments) + "</span>" : "") +
+        (n.author ? "<span>by " + esc(n.author) + "</span>" : "") +
+        "</div></div>";
+    }).join("");
+    el.innerHTML = '<div class="news-list">' + items + "</div>";
+  }
+
+  var RENDERERS = { kev: renderKevTable, cve: renderCveTable, ghsa: renderGhsaTable, news: renderNewsList };
+
+  // ---------- filtering ----------
+  function applyFilter(id) {
+    var input = document.getElementById("filter-" + id);
+    if (!input) return renderFull(id);
+    var q = input.value.trim().toLowerCase();
+    var list = state.data[id] || [];
+    if (q) {
+      list = list.filter(function (item) {
+        var hay = JSON.stringify(item).toLowerCase();
+        return hay.indexOf(q) !== -1;
+      });
+    }
+    var limit = id === "news" ? list.length : state.visibleCount[id];
+    RENDERERS[id]("table-" + id, list, limit);
+    var moreBtn = document.getElementById("more-" + id);
+    if (moreBtn) moreBtn.style.display = (id !== "news" && list.length > limit) ? "inline-block" : "none";
+  }
+  function renderFull(id) { applyFilter(id); }
+
+  // ---------- KPIs & chart ----------
+  function updateKpis() {
+    var kev = state.data.kev || [];
+    var cve = state.data.cve || [];
+    var ghsa = state.data.ghsa || [];
+    var now = Date.now();
+    var sevenDaysAgo = now - 7 * 24 * 3600 * 1000;
+
+    document.getElementById("kpiKevTotal").textContent = kev.length ? kev.length.toLocaleString() : "—";
+    var kevNew = kev.filter(function (v) { return new Date(v.dateAdded).getTime() >= sevenDaysAgo; }).length;
+    document.getElementById("kpiKevNew").textContent = kev.length ? kevNew.toLocaleString() : "—";
+
+    var highCve = cve.filter(function (c) { return c.score != null && c.score >= 7; }).length;
+    document.getElementById("kpiCveHigh").textContent = cve.length ? highCve.toLocaleString() : "—";
+
+    document.getElementById("kpiGhsa").textContent = ghsa.length ? ghsa.length.toLocaleString() : "—";
+
+    var online = 0, total = 0;
+    Object.keys(state.status).forEach(function (k) {
+      total++;
+      if (state.status[k] === "live") online++;
+    });
+    document.getElementById("kpiSources").textContent = online + " / " + total;
+  }
+
+  function updateChart() {
+    if (typeof Chart === "undefined") {
+      var wrap = document.getElementById("kevTrendChart").parentElement;
+      if (wrap && !document.getElementById("chartUnavailable")) {
+        var msg = document.createElement("div");
+        msg.id = "chartUnavailable";
+        msg.className = "error-msg";
+        msg.textContent = "Chart library failed to load (blocked CDN?) — the table below is unaffected.";
+        wrap.appendChild(msg);
+      }
+      return;
+    }
+    var kev = state.data.kev || [];
+    if (!kev.length) return;
+    var days = [];
+    for (var i = 29; i >= 0; i--) {
+      var d = new Date(Date.now() - i * 24 * 3600 * 1000);
+      days.push(d.toISOString().split("T")[0]);
+    }
+    var counts = {};
+    days.forEach(function (d) { counts[d] = 0; });
+    kev.forEach(function (v) {
+      var d = fmtDate(v.dateAdded);
+      if (counts.hasOwnProperty(d)) counts[d]++;
+    });
+    var labels = days.map(function (d) { return d.slice(5); });
+    var values = days.map(function (d) { return counts[d]; });
+
+    var ctx = document.getElementById("kevTrendChart").getContext("2d");
+    if (state.chart) { state.chart.destroy(); }
+    state.chart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: "KEV additions",
+          data: values,
+          backgroundColor: "#3987e5",
+          borderRadius: 4,
+          maxBarThickness: 18
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#191f28",
+            titleColor: "#f4f6f8",
+            bodyColor: "#f4f6f8",
+            borderColor: "rgba(255,255,255,0.10)",
+            borderWidth: 1,
+            callbacks: {
+              label: function (item) { return item.parsed.y + " CVE" + (item.parsed.y === 1 ? "" : "s") + " added"; }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { color: "#7b8494", maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } },
+          y: { beginAtZero: true, grid: { color: "#2c333f" }, ticks: { color: "#7b8494", precision: 0 } }
+        }
+      }
+    });
+  }
+
+  // ---------- source status / meta ----------
+  function humanBytes() { return ""; }
+
+  function updateSourceMeta(id, status, count, ts) {
+    state.status[id] = status;
+    ["dot-" + id, "dot-" + id + "-mini"].forEach(function (elId) {
+      setDot(document.getElementById(elId), status === "live" ? "live" : status);
+    });
+    var meta = document.getElementById("meta-" + id);
+    if (meta) {
+      var label = status === "live" ? "Live" : status === "stale" ? "Showing cached data" : "Unavailable";
+      meta.textContent = label + " · " + (count != null ? count + " items · " : "") + "updated " + timeAgo(ts ? new Date(ts).toISOString() : null);
+    }
+    var overall = document.getElementById("overallDot");
+    var statuses = Object.values(state.status);
+    if (statuses.every(function (s) { return s === "live"; })) setDot(overall, "live");
+    else if (statuses.some(function (s) { return s === "live" || s === "stale"; })) setDot(overall, "stale");
+    else setDot(overall, "down");
+  }
+
+  // ---------- load orchestration ----------
+  function loadSource(id) {
+    return fetchJSON(id)
+      .then(function (raw) {
+        var parsed = PARSERS[id](raw);
+        state.data[id] = parsed;
+        saveCache(id, parsed);
+        updateSourceMeta(id, "live", parsed.length, Date.now());
+        return true;
+      })
+      .catch(function () {
+        var cached = loadCache(id);
+        if (cached && cached.data) {
+          state.data[id] = cached.data;
+          updateSourceMeta(id, "stale", cached.data.length, cached.ts);
+        } else {
+          state.data[id] = [];
+          updateSourceMeta(id, "down", 0, null);
+        }
+        return false;
+      });
+  }
+
+  function refreshAll() {
+    var btn = document.getElementById("refreshBtn");
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+    Object.keys(SOURCES).forEach(function (id) {
+      state.status[id] = "loading";
+    });
+
+    function safely(fn) {
+      try { fn(); } catch (e) { /* one panel's failure must never block the others */ }
+    }
+
+    return Promise.allSettled(Object.keys(SOURCES).map(loadSource).concat([loadMisp()])).then(function () {
+      safely(updateKpis);
+      safely(updateChart);
+      ["kev", "cve", "ghsa", "news"].forEach(function (id) { safely(function () { applyFilter(id); }); });
+      safely(applyMispFilter);
+      safely(function () { renderKevTable("mini-kev", state.data.kev || [], 5); });
+      safely(function () { renderNewsList("mini-news", state.data.news || [], 6); });
+      var moreKev = document.getElementById("more-kev");
+      if (moreKev) moreKev.style.display = (state.data.kev || []).length > state.visibleCount.kev ? "inline-block" : "none";
+      var moreCve = document.getElementById("more-cve");
+      if (moreCve) moreCve.style.display = (state.data.cve || []).length > state.visibleCount.cve ? "inline-block" : "none";
+      var moreGhsa = document.getElementById("more-ghsa");
+      if (moreGhsa) moreGhsa.style.display = (state.data.ghsa || []).length > state.visibleCount.ghsa ? "inline-block" : "none";
+      safely(renderSourcesTab);
+      btn.disabled = false;
+      btn.textContent = "Refresh now";
+    });
+  }
+
+  function renderSourcesTab() {
+    var grid = document.getElementById("sourcesGrid");
+    var cards = Object.keys(SOURCES).map(function (id) {
+      var s = SOURCES[id];
+      var st = state.status[id];
+      var dotClass = st === "live" ? "" : st === "stale" ? "stale" : "down";
+      var label = st === "live" ? "Live" : st === "stale" ? "Stale (cached)" : "Unavailable";
+      return '<div class="source-card">' +
+        '<h3><span class="src-dot ' + dotClass + '"></span>' + esc(s.name) + "</h3>" +
+        "<p>" + esc(s.desc) + "</p>" +
+        '<div class="status-line">Status: ' + esc(label) + ' · <a href="' + esc(s.docs) + '" target="_blank" rel="noopener">docs ↗</a></div>' +
+        "</div>";
+    });
+    var mispDotClass = mispStatus === "live" ? "" : mispStatus === "unconfigured" || mispStatus === "loading" ? "off" : mispStatus;
+    var mispLabel = mispStatus === "live" ? "Live" : mispStatus === "stale" ? "Stale (cached)" : mispStatus === "unconfigured" ? "Not configured" : "Unavailable";
+    cards.push('<div class="source-card">' +
+      '<h3><span class="src-dot ' + mispDotClass + '"></span>MISP Instance <span style="color:var(--text-muted);font-weight:500;">(optional)</span></h3>' +
+      "<p>Bring your own MISP instance to pull recent indicators (IOCs). Not fetched unless you configure it, and never counted toward the core feed health above — see the MISP tab.</p>" +
+      '<div class="status-line">Status: ' + esc(mispLabel) + "</div>" +
+      "</div>");
+    grid.innerHTML = cards.join("");
+  }
+
+  // ---------- tabs ----------
+  document.getElementById("tabNav").addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-tab]");
+    if (!btn) return;
+    document.querySelectorAll("#tabNav button").forEach(function (b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    document.querySelectorAll(".section").forEach(function (s) { s.classList.remove("active"); });
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+  });
+
+  // ---------- filters ----------
+  ["kev", "cve", "ghsa", "news"].forEach(function (id) {
+    var input = document.getElementById("filter-" + id);
+    if (input) input.addEventListener("input", function () { applyFilter(id); });
+  });
+
+  document.getElementById("more-kev").addEventListener("click", function () { state.visibleCount.kev += 15; applyFilter("kev"); });
+  document.getElementById("more-cve").addEventListener("click", function () { state.visibleCount.cve += 15; applyFilter("cve"); });
+  document.getElementById("more-ghsa").addEventListener("click", function () { state.visibleCount.ghsa += 15; applyFilter("ghsa"); });
+
+  // ---------- MISP controls ----------
+  document.getElementById("filter-misp").addEventListener("input", applyMispFilter);
+  document.getElementById("more-misp").addEventListener("click", function () { state.visibleCount.misp += 15; applyMispFilter(); });
+
+  document.getElementById("mispConnectBtn").addEventListener("click", function () {
+    var url = document.getElementById("mispUrl").value.trim();
+    var key = document.getElementById("mispKey").value.trim();
+    var errEl = document.getElementById("mispError");
+    errEl.style.display = "none";
+    if (!url || !key) {
+      errEl.textContent = "Enter both an instance URL and an API key.";
+      errEl.style.display = "block";
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      errEl.textContent = "URL must start with http:// or https://";
+      errEl.style.display = "block";
+      return;
+    }
+    saveMispConfig(url, key);
+    document.getElementById("mispForgetBtn").style.display = "inline-block";
+    document.getElementById("mispDataPanel").style.display = "block";
+    document.getElementById("table-misp").innerHTML = '<div class="loading"><span class="spinner"></span> Connecting…</div>';
+    loadMisp().then(function () { applyMispFilter(); });
+  });
+
+  document.getElementById("mispForgetBtn").addEventListener("click", function () {
+    forgetMispConfig();
+    state.data.misp = [];
+    document.getElementById("mispKey").value = "";
+    document.getElementById("mispDataPanel").style.display = "none";
+    document.getElementById("mispForgetBtn").style.display = "none";
+    document.getElementById("mispError").style.display = "none";
+    updateMispStatus("unconfigured", null, null);
+  });
+
+  (function initMispUi() {
+    var cfg = getMispConfig();
+    if (cfg) {
+      document.getElementById("mispUrl").value = cfg.url;
+      document.getElementById("mispKey").value = cfg.key;
+      document.getElementById("mispForgetBtn").style.display = "inline-block";
+      document.getElementById("mispDataPanel").style.display = "block";
+    }
+  })();
+
+  // ---------- refresh controls ----------
+  document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+  document.getElementById("refreshInterval").addEventListener("change", function (e) {
+    if (state.timer) clearInterval(state.timer);
+    var ms = parseInt(e.target.value, 10);
+    if (ms > 0) state.timer = setInterval(refreshAll, ms);
+  });
+
+  // ---------- clock ----------
+  function tickClock() {
+    var el = document.getElementById("clockTime");
+    if (el) el.textContent = new Date().toISOString().slice(11, 19) + " UTC";
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  // ---------- init ----------
+  refreshAll();
+  state.timer = setInterval(refreshAll, 300000);
+})();
+</script>
+</body>
+</html>
